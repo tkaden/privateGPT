@@ -14,17 +14,20 @@ RUN apt update && apt install -y \
   ninja-build\
   build-essential\
   pkg-config\
-  wget
+  wget\
+  make
 
 # https://python-poetry.org/docs/configuration/#virtualenvsin-project
 ENV POETRY_VIRTUALENVS_IN_PROJECT=true
 
 FROM base as dependencies
 WORKDIR /home/worker/app
-COPY pyproject.toml poetry.lock ./
-
+COPY . .
 RUN poetry install --with local
 RUN poetry install --with ui
+
+# Run the setup script
+RUN poetry run python scripts/setup
 
 FROM base as app
 
@@ -32,16 +35,15 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 EXPOSE 8080
 
-# Prepare a non-root user
 RUN adduser --system worker
 WORKDIR /home/worker/app
 
-RUN mkdir local_data; chown worker local_data
-RUN mkdir models; chown worker models
-COPY --chown=worker --from=dependencies /home/worker/app/.venv/ .venv
-COPY --chown=worker private_gpt/ private_gpt
-COPY --chown=worker docs/ docs
-COPY --chown=worker *.yaml *.md ./
+# Copy everything from the 'dependencies' stage
+COPY --from=dependencies /home/worker/app/ ./
 
-USER worker
-ENTRYPOINT .venv/bin/python -m private_gpt
+# Set necessary environment variables
+ENV PATH="/root/.local/bin:$PATH"
+ENV PGPT_PROFILES=local
+
+USER root
+ENTRYPOINT ["make", "run"]
